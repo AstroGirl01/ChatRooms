@@ -4,7 +4,6 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-
 public class ChatMessage implements Serializable {
 
     private String user;
@@ -16,16 +15,19 @@ public class ChatMessage implements Serializable {
 
     private LocalDateTime timestamp;
     private static final DateTimeFormatter FORMATTER =
-            DateTimeFormatter.ofPattern("dd-M-yyyy HH:mm:ss");
+            DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss");
 
-    public ChatMessage() { }
+    private int index;
+    public int getIndex() { return index; }
+    public void setIndex(int index) { this.index = index; }
 
-    
+    public ChatMessage() {}
+
     public ChatMessage(String user, String txt, String chatRoom) {
         this.user = user;
         this.chatRoom = chatRoom;
         this.timestamp = LocalDateTime.now();
-        this.txt = txt + " [" + timestamp.format(FORMATTER) + "]";
+        this.txt = txt;
     }
 
     public ChatMessage(String user, String txt, String chatRoom, boolean stamped) {
@@ -33,19 +35,14 @@ public class ChatMessage implements Serializable {
         this.chatRoom = chatRoom;
         this.timestamp = LocalDateTime.now();
         this.stamped = stamped;
-        this.txt = stamped ? txt : txt + " [" + timestamp.format(FORMATTER) + "]";
+        this.txt = txt;
     }
-
 
     public String getUser() { return user; }
     public void setUser(String user) { this.user = user; }
 
     public String getTxt() { return txt; }
-
-    public void setTxt(String txt) {
-        this.timestamp = LocalDateTime.now();
-        this.txt = stamped ? txt : txt + " [" + timestamp.format(FORMATTER) + "]";
-    }
+    public void setTxt(String txt) { this.txt = txt; }
 
     public String getChatRoom() { return chatRoom; }
     public void setChatRoom(String chatRoom) { this.chatRoom = chatRoom; }
@@ -60,15 +57,17 @@ public class ChatMessage implements Serializable {
     public void setNoNeed(boolean noNeed) { this.noNeed = noNeed; }
 
     public LocalDateTime getTimestamp() { return timestamp; }
-    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
 
+    public String getFormattedTimestamp() {
+        return "[" + timestamp.format(FORMATTER) + "]";
+    }
 
     public String format() {
-        return "(" + chatRoom + ") " + user + ": " + txt + "\n";
+        return getFormattedTimestamp() + " " + user + ": " + txt;
     }
 
     @Override
     public String toString() {
-        return "[" + timestamp.format(FORMATTER) + "] (" + chatRoom + ") " + user + ": " + txt;
+        return format();
     }
 }

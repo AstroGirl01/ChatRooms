@@ -33,20 +33,18 @@ public class ChatClient {
         registerListener();
     }
 
-    /** Callback interfejs za GUI */
     public interface ChatMessageCallback {
         void handleMessage(String message);
         void handleUserListUpdate(List<String> users, String room);
         void handleMessageUpdate(ChatMessage oldMessage, ChatMessage message, String room);
+        void handleRoomListUpdate(List<String> rooms);
     }
 
-    /** Listener za događaje sa servera */
     private void registerListener() {
         client.addListener(new Listener() {
             @Override
             public void connected(Connection connection) {
                 client.sendTCP(new Login(userName));
-                printToGUI("✅ Connected as " + userName);
             }
 
             @Override
@@ -56,30 +54,37 @@ public class ChatClient {
 
             @Override
             public void received(Connection connection, Object object) {
-                if (object instanceof ChatMessage) {
-                    ChatMessage msg = (ChatMessage) object;
-                    String prefix = msg.getChatRoom() != null ? "(" + msg.getChatRoom() + ") " : "";
-                    printToGUI(prefix + msg.getUser() + ": " + msg.getTxt());
+                if (object instanceof ChatMessage msg) {
+                    String formatted = "(" + msg.getIndex() + ") " + msg.getFormattedTimestamp()
+                            + " (" + msg.getChatRoom() + ") " + msg.getUser() + ": " + msg.getTxt();
+                    printToGUI(formatted);
                 }
 
-                else if (object instanceof PrivateMessage) {
-                    PrivateMessage pm = (PrivateMessage) object;
-                    printToGUI("📩 [Private] " + pm.getUser() + " → you: " + pm.getTxt());
+                else if (object instanceof PrivateMessage pm) {
+                    String timestamp = "";
+                    if (pm.getTimestamp() != null) {
+                        timestamp = "[" + pm.getTimestamp().format(
+                                java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
+                        ) + "]";
+                    }
+                    printToGUI(timestamp + " 📩 [Private] " + pm.getUser() + " → you: " + pm.getTxt());
                 }
 
-                else if (object instanceof ListUsers) {
-                    ListUsers lu = (ListUsers) object;
+                else if (object instanceof ListUsers lu) {
                     callback.handleUserListUpdate(Arrays.asList(lu.getUsers()), activeRoom);
                 }
 
-                else if (object instanceof InfoMessage) {
-                    InfoMessage im = (InfoMessage) object;
+                else if (object instanceof ListRooms lr) {
+                    Platform.runLater(() ->
+                            callback.handleRoomListUpdate(Arrays.asList(lr.getRooms()))
+                    );
+                }
+
+                else if (object instanceof InfoMessage im) {
                     printToGUI("[Server] " + im.getTxt());
                 }
 
-                else if (object instanceof List<?>) {
-                    // ažuriranje (edit) poruka
-                    List<?> msgs = (List<?>) object;
+                else if (object instanceof List<?> msgs) {
                     if (msgs.size() == 2 && msgs.get(0) instanceof ChatMessage && msgs.get(1) instanceof ChatMessage) {
                         callback.handleMessageUpdate((ChatMessage) msgs.get(0), (ChatMessage) msgs.get(1), activeRoom);
                     }
@@ -88,18 +93,15 @@ public class ChatClient {
         });
     }
 
-    /** Ispis poruka u GUI */
     private void printToGUI(String msg) {
         Platform.runLater(() -> callback.handleMessage(msg));
     }
 
-    /** Start konekcije ka serveru */
     public void start() throws IOException {
         client.start();
         client.connect(3000, hostName, portNumber);
     }
 
-    /** Stop konekcije */
     public void stop() {
         if (client.isConnected()) {
             client.close();
@@ -111,23 +113,17 @@ public class ChatClient {
     public String getActiveRoom() { return activeRoom; }
     public void setActiveRoom(String room) { this.activeRoom = room; }
 
-    /** Glavna funkcija za obradu unosa iz GUI-ja */
     public void processUserInput(String input, String room) {
         if (input == null || input.trim().isEmpty()) return;
 
         String trimmed = input.trim();
+        String upper = trimmed.toUpperCase(); 
 
-        // --- WHO ---
-        if ("WHO".equalsIgnoreCase(trimmed)) {
-            client.sendTCP(new WhoRequest());
+        if (upper.startsWith("/EDIT") || upper.startsWith("/REPLY")) {
+            client.sendTCP(trimmed);  
             return;
         }
 
-        // --- BYE ---
-        if ("BYE".equalsIgnoreCase(trimmed)) {
-            stop();
-            return;
-        }
 
         // --- Privatna poruka ---
         if (trimmed.startsWith("@") && !trimmed.startsWith("@{")) {
@@ -142,23 +138,27 @@ public class ChatClient {
 
         // --- Multicast poruka ---
         if (trimmed.startsWith("@{") && trimmed.contains("}")) {
-            int end = trimmed.indexOf('}');
-            String listPart = trimmed.substring(2, end);
-            List<String> users = Arrays.asList(listPart.split(","));
-            String msgText = trimmed.substring(end + 1).trim();
-            sendMulticastMessage(users, msgText);
+            ChatMessage multicastMsg = new ChatMessage(userName, trimmed, activeRoom);
+            client.sendTCP(multicastMsg);
+            printToGUI("📡 Sent multicast: " + trimmed);
+            return;
+        }
+
+        // --- LEAVE ROOM ---
+        if (upper.startsWith("/LEAVEROOM")) {
+            client.sendTCP(upper);
             return;
         }
 
         // --- Komande ---
-        if (trimmed.toUpperCase().startsWith("/CREATE") ||
-            trimmed.toUpperCase().startsWith("/LISTROOMS") ||
-            trimmed.toUpperCase().startsWith("/JOIN") ||
-            trimmed.toUpperCase().startsWith("/ROOM") ||
-            trimmed.toUpperCase().startsWith("/INVITE") ||
-            trimmed.toUpperCase().startsWith("/MYROOMS") ||
-            trimmed.toUpperCase().startsWith("/HISTORY")) {
-            client.sendTCP(trimmed.toUpperCase());
+        if (upper.startsWith("/CREATE") ||
+            upper.startsWith("/LISTROOMS") ||
+            upper.startsWith("/JOIN") ||
+            upper.startsWith("/ROOM") ||
+            upper.startsWith("/INVITE") ||
+            upper.startsWith("/MYROOMS") ||
+            upper.startsWith("/HISTORY")) {
+        	client.sendTCP(trimmed);
             return;
         }
 
@@ -168,15 +168,14 @@ public class ChatClient {
     }
 
     /** Slanje privatne poruke */
-    public void sendPrivateMessage(String to, String text) {
+    private void sendPrivateMessage(String to, String text) {
         PrivateMessage pm = new PrivateMessage(userName, text, to);
         client.sendTCP(pm);
-        printToGUI("🕵️‍♀️ You → " + to + ": " + text);
+        System.out.println("🕵️‍♀️ You → " + to + ": " + text);
     }
 
     /** Slanje multicast poruke (grupi korisnika) */
     public void sendMulticastMessage(List<String> recipients, String text) {
-        // Pretvaramo listu korisnika u string da bi server znao kome ide
         StringJoiner joiner = new StringJoiner(", ");
         for (String u : recipients) joiner.add(u.trim());
 
@@ -184,5 +183,27 @@ public class ChatClient {
         ChatMessage groupMsg = new ChatMessage(userName, messageText, activeRoom);
         client.sendTCP(groupMsg);
         printToGUI("📡 You → [" + joiner + "]: " + text);
+    }
+
+
+
+    /** Kreira sobu preko RPC poziva */
+    public void createRoom(String roomName) {
+        if (roomName == null || roomName.isEmpty()) return;
+        client.sendTCP("/CREATE " + roomName);
+    }
+
+    /** Vraća listu svih soba */
+    public List<String> getAllRooms() {
+        client.sendTCP("/LISTROOMS");
+        return new ArrayList<>();
+    }
+
+    /** Pridružuje korisnika sobi i ažurira aktivnu sobu */
+    public List<String> joinRoom(String roomName) {
+        if (roomName == null || roomName.isEmpty()) return new ArrayList<>();
+        client.sendTCP("/JOIN " + roomName);
+        this.activeRoom = roomName;
+        return new ArrayList<>();
     }
 }
